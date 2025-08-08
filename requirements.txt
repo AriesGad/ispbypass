@@ -1,5 +1,7 @@
 requests
-dnspython
 pythonping
 beautifulsoup4
 tqdm
+termcolor
+retrying
+shodan

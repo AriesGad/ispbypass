@@ -29,6 +29,8 @@ Enumerate subdomains and scan for ISP bypass with VirusTotal, crt.sh, DNSdumpste
    git clone https://github.com/AriesGad/ispbypass.git
    cd ispbypass
    pip install -r requirements.txt
+   pip install requests pythonping beautifulsoup4 tqdm termcolor retrying shodan
+   termux-setup-storage
 
 <<<<<<< HEAD
 =======

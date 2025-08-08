@@ -1,0 +1,5 @@
+requests
+dnspython
+pythonping
+beautifulsoup4
+tqdm

@@ -1,5 +1,11 @@
 Enumerate subdomains and scan for ISP bypass with VirusTotal, crt.sh, DNSdumpster, Shodan, Nmap, and sslscan. Live color-coded results, supports proxies, custom DNS. For authorized use only.
 
+## Installation
+1. **Clone the Repository**:
+   ```bash
+   git clone https://github.com/AriesGad/ispbypass.git
+   cd ispbypass
+   pip install -r requirements.txt
 
 # Display help
 python3 ispbypass.py -h

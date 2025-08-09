@@ -19,14 +19,26 @@ import shodan
 from termcolor import colored
 from retrying import retry
 import getpass
+import ipaddress
+import sys
 
 # Banner
 BANNER = r"""
- ___ ____  ____         _          
-|_ _|  _ \| __ )  ___  | |__   ___ 
- | || |_) |  _ \ / __| | '_ \ / __|
- | ||  __/| |_) | (__  | |_) | (__ 
-|___|_|   |____/ \___| |_.__/ \___|
+                        ______
+                     .-        -.
+                    /            \
+                   |,  .-.  .-.  ,|
+                   | )(_o/  \o_)( |
+                   |/     /\     \|
+                   (_     ^^     _)
+                    \__|IIIIII|__/
+                     | \IIIIII/ |
+                     \          /
+                      `--------`
+
+                     +-----------+
+                     | ISPBYPASS |
+                     +-----------+
 
 ISP-BYPASS - Find Working Hosts and Subdomains
 Version: 1.4 | Author: ♈️ariesgad♈️ | Enhanced by Grok
@@ -273,7 +285,7 @@ def get_shodan_subdomains(domain):
         logger.error(f"Shodan API error for {domain}: {e}")
         return []
 
-def nmap_scan(domain, nmap_args="-sV -sC -p 80,443,8080,8443"):
+def nmap_scan(domain, nmap_args="-sV -sC -p 80,443,8080,8443,53"):
     """Perform an Nmap scan on the domain."""
     logger.info(f"Running Nmap scan on {domain} with args: {nmap_args}")
     try:
@@ -321,7 +333,7 @@ def check_root_privileges():
     """Check if the user has root privileges."""
     return os.geteuid() == 0 if hasattr(os, "geteuid") else getpass.getuser() == "root"
 
-def scan_domain(domain, ports=[80, 443, 8080, 8443], proxies=None, dns_server=None, timeout=5, output_dir="output", free_host=None, filter_ports=None, filter_status=None):
+def scan_domain(domain, ports=[80, 443, 8080, 8443, 53], proxies=None, dns_server=None, timeout=5, output_dir="output", free_host=None, filter_ports=None, filter_status=None):
     """Scan a single domain for DNS, HTTP/HTTPS, ports, ping, Nmap, and SSL."""
     result = {
         "domain": domain,
@@ -351,7 +363,7 @@ def scan_domain(domain, ports=[80, 443, 8080, 8443], proxies=None, dns_server=No
     result["protocol"] = protocol
     if status_code:
         result["sources"].append("HTTP/HTTPS")
-        if status_code in [200, 301, 302]:
+        if status_code in [200, 301, 302, 403]:
             result["status"] = "working"
     
     # Port scanning
@@ -458,7 +470,7 @@ def save_result(result, output_dir):
         with open(json_file, "w") as f:
             json.dump(json_data, f, indent=4)
 
-def scan_all_domains(domains, ports=[80, 443, 8080, 8443], proxies=None, dns_server=None, timeout=5, output_dir="output", free_host=None, filter_ports=None, filter_status=None, max_workers=20):
+def scan_all_domains(domains, ports=[80, 443, 8080, 8443, 53], proxies=None, dns_server=None, timeout=5, output_dir="output", free_host=None, filter_ports=None, filter_status=None, max_workers=20):
     """Scan a list of domains and their subdomains with optimized threading."""
     global active_domains
     active_domains = []
@@ -493,6 +505,28 @@ def load_wordlist(wordlist_file):
     logger.warning(f"Wordlist file {wordlist_file} not found. Using default wordlist.")
     return WORDLIST
 
+def scan_with_nmap(target):
+    try:
+        # Run nmap with ping scan (-sn) and grepable output (-oG -)
+        result = subprocess.run(['nmap', '-sn', '-oG', '-', target], capture_output=True, text=True, check=True)
+        output = result.stdout
+        
+        up_hosts = []
+        for line in output.splitlines():
+            if line.startswith('Host:') and 'Status: Up' in line:
+                # Extract IP from "Host: IP ()"
+                ip = line.split()[1]
+                up_hosts.append(ip)
+        
+        return up_hosts
+    
+    except subprocess.CalledProcessError as e:
+        print(f"Error running nmap: {e.stderr}", file=sys.stderr)
+        return []
+    except FileNotFoundError:
+        print("Nmap not found. Please install nmap on your system.", file=sys.stderr)
+        return []
+
 def main():
     """Main function to parse arguments and run the script."""
     print(BANNER)
@@ -517,7 +551,7 @@ def main():
     load_proxies(args.proxy)
     
     # Parse ports and status codes for filtering
-    ports = [int(p.strip()) for p in args.ports.split(",")] if args.ports else [80, 443, 8080, 8443]
+    ports = [int(p.strip()) for p in args.ports.split(",")] if args.ports else [80, 443, 8080, 8443, 53]
     filter_ports = [int(p.strip()) for p in args.filter_ports.split(",")] if args.filter_ports else None
     filter_status = [int(s.strip()) for s in args.filter_status.split(",")] if args.filter_status else None
     
@@ -526,17 +560,42 @@ def main():
     
     domains = []
     
-    # Handle input domains
+    # Handle input domains or IPs
     if args.domain:
-        has_tld = any(args.domain.endswith(tld) for tld in TLDS)
-        domains = [args.domain] if has_tld else [f"{args.domain}{tld}" for tld in TLDS]
-        if has_tld:
-            domains.extend([f"{sub}.{args.domain}" for sub in wordlist])
-            domains.extend(get_virustotal_subdomains(args.domain))
-            domains.extend(get_crtsh_subdomains(args.domain))
-            domains.extend(get_dnsdumpster_subdomains(args.domain))
-            domains.extend(get_cdnfinder_domains(args.domain))
-            domains.extend(get_shodan_subdomains(args.domain))
+        try:
+            network = ipaddress.ip_network(args.domain, strict=False)
+            is_ip = True
+        except ValueError:
+            is_ip = False
+
+        if is_ip:
+            print(f"Scanning IP or range for live hosts: {args.domain}")
+            live_hosts = scan_with_nmap(args.domain)
+            
+            if '/' in args.domain:  # Assume it's a range if CIDR notation is used
+                if live_hosts:
+                    print(f"Live proxies in range {args.domain}:")
+                    for host in live_hosts:
+                        print(host)
+                else:
+                    print(f"No live proxies found in range {args.domain}.")
+            else:
+                if live_hosts:
+                    print(f"Proxy {args.domain} is live.")
+                else:
+                    print(f"Proxy {args.domain} is down.")
+            return  # Exit after IP scan
+
+        else:
+            has_tld = any(args.domain.endswith(tld) for tld in TLDS)
+            domains = [args.domain] if has_tld else [f"{args.domain}{tld}" for tld in TLDS]
+            if has_tld:
+                domains.extend([f"{sub}.{args.domain}" for sub in wordlist])
+                domains.extend(get_virustotal_subdomains(args.domain))
+                domains.extend(get_crtsh_subdomains(args.domain))
+                domains.extend(get_dnsdumpster_subdomains(args.domain))
+                domains.extend(get_cdnfinder_domains(args.domain))
+                domains.extend(get_shodan_subdomains(args.domain))
     
     elif args.file:
         if os.path.exists(args.file):

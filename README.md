@@ -43,6 +43,12 @@ python3 ispbypass.py -h
 # Scan a single domain
 python3 ispbypass.py -d example.com
 
+# scan a single ip
+python3 ispbypass.py -d 172.0.0.1
+
+# scan CTRL ip range
+python3 ispbypass.py -d 172.0.0.0/24
+
 # Scan with custom ports
 python3 ispbypass.py -d example.com -p 80,443,8080
 
